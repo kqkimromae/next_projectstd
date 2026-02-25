@@ -1,0 +1,72 @@
+// file: prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql" 
+  url      = env("DATABASE_URL")
+}
+
+// --- ตารางผู้ใช้งาน (สมาชิก) ---
+model User {
+  id        String    @id @default(cuid())
+  name      String?
+  email     String    @unique
+  password  String
+  role      String    @default("USER")
+  bookings  Booking[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// --- ตารางสนาม ---
+model Field {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  imageUrl    String?   
+  
+  price        Int       
+  memberPrice  Int       @default(50)
+  
+  // ✨ เพิ่ม capacity ไว้ที่นี่เพื่อให้แต่ละสนามรับคนได้ไม่เท่ากัน
+  capacity     Int       @default(12) 
+
+  bookings     Booking[]
+}
+
+// --- ตารางการจอง ---
+model Booking {
+  id            String   @id @default(cuid())
+
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+  
+  fieldId       String
+  field         Field    @relation(fields: [fieldId], references: [id])
+
+  date          String   
+  startTime     String   
+  endTime       String   
+
+  guestName     String?
+  guestPhone    String?
+
+
+  slipUrl       String?
+  
+  accessCode    String   @unique @default(uuid()) 
+  amountPaid  Float    @default(0) // ยอดที่โอนมาแล้วจริง
+  totalPrice  Float    @default(0) // ราคาที่ต้องจ่ายทั้งหมด (หลังคำนวณใหม่)
+  // ✅ รวม status ไว้ที่เดียว (ลบตัวที่ซ้ำออก)
+  status        String   @default("PENDING") // PENDING, PAID, REJECTED, UNPAID
+  
+  // ✨ ข้อมูลการจองรายหัว/ทีม
+  bookingType   String   @default("SOLO") 
+  playerCount   Int      @default(1)      
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt 
+}
