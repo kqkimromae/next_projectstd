@@ -1,3 +1,4 @@
+//src/app/page.tsx
 import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 import { ArrowRight, Star, Ticket, Search, MoveRight } from "lucide-react";

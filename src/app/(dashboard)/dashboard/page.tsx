@@ -1,3 +1,4 @@
+//src/app/(dashboard)/dashboard/page.tsx
 import { getFields, createBooking } from "../../../actions/bookings";
 
 export default async function Dashboard() {

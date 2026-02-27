@@ -1,3 +1,4 @@
+//src/app/api/admin/bookings/[id]/edit/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "../../../../../../lib/prisma";
 
