@@ -8,35 +8,43 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const {
-      fieldId,
-      userId,
-      date,
-      startTime,
-      endTime,
-      guestName,
-      guestPhone,
-      slipUrl,
-      playerCount,
-      bookingType,
+      fieldId, userId, date, startTime, endTime,
+      guestName, guestPhone, slipUrl, playerCount, bookingType,
     } = body;
 
-    // 1. ตรวจสอบข้อมูลเบื้องต้น
+    // 1. เช็คข้อมูลครบ
     if (!fieldId || !date || !startTime || !endTime) {
       return NextResponse.json({ message: "ข้อมูลไม่ครบถ้วน" }, { status: 400 });
     }
 
-    // 2. ดึงข้อมูลสนามเพื่อเช็ค Capacity และราคา
+    const dateString = typeof date === "string"
+      ? date.split("T")[0]
+      : new Date(date).toISOString().split("T")[0];
+
+    // ✅ 2. เช็คว่า date อยู่ในช่วง min-max (พรุ่งนี้ ถึง 3 วันข้างหน้า)
+    const minDate = new Date();
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + 3);
+
+    const minDateStr = minDate.toISOString().split("T")[0];
+    const maxDateStr = maxDate.toISOString().split("T")[0];
+
+    if (dateString < minDateStr || dateString > maxDateStr) {
+      return NextResponse.json(
+        { message: `จองได้เฉพาะ 3 วันข้างหน้าเท่านั้น (${minDateStr} ถึง ${maxDateStr})` },
+        { status: 400 }
+      );
+    }
+
+    // 3. ดึงข้อมูลสนาม
     const field = await prisma.field.findUnique({ where: { id: fieldId } });
     if (!field) {
       return NextResponse.json({ message: "ไม่พบข้อมูลสนาม" }, { status: 404 });
     }
 
-    const dateString = typeof date === 'string' ? date.split('T')[0] : new Date(date).toISOString().split('T')[0];
-    
-    // ใช้ค่าความจุจาก DB ของสนามนั้นๆ (ถ้าไม่มีใส่ default ไว้ที่ 12)
-    const maxCapacity = field.capacity || 12; 
+    const maxCapacity = field.capacity || 12;
 
-    // 3. เช็คจำนวนคนจองสะสมในรอบเวลานี้
+    // 4. เช็ค capacity
     const bookingsInSlot = await prisma.booking.findMany({
       where: {
         fieldId,
@@ -49,7 +57,6 @@ export async function POST(req: Request) {
 
     const currentReserved = bookingsInSlot.reduce((sum, b) => sum + (b.playerCount || 0), 0);
 
-    // ตรวจสอบว่าที่ว่างพอไหม
     if (currentReserved + (playerCount || 1) > maxCapacity) {
       return NextResponse.json(
         { message: `ขออภัย สนามเต็มแล้ว (ว่างอีกเพียง ${maxCapacity - currentReserved} ที่)` },
@@ -57,19 +64,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4. คำนวณราคา
+    // 5. คำนวณราคา
     const startHour = parseInt(startTime.split(":")[0]);
     const endHour = parseInt(endTime.split(":")[0]);
     const duration = endHour - startHour;
-    
-    // ราคาต่อหัว
     const pricePerPerson = userId ? field.memberPrice : field.price;
-    
-    // ส่วนลดพิเศษถ้าจองเป็นทีม (6 คนขึ้นไป ลด 10%)
     const discount = (bookingType === "TEAM" && playerCount >= 6) ? 0.9 : 1;
     const totalPrice = pricePerPerson * duration * (playerCount || 1) * discount;
 
-    // 5. บันทึกลงฐานข้อมูล
+    // 6. บันทึก DB
     const booking = await prisma.booking.create({
       data: {
         fieldId,
@@ -83,19 +86,17 @@ export async function POST(req: Request) {
         guestPhone: guestPhone || null,
         totalPrice,
         slipUrl: slipUrl || null,
-        status: slipUrl ? "PENDING" : "UNPAID", 
+        status: slipUrl ? "PENDING" : "UNPAID",
       },
     });
 
-    // ✨ จุดที่แก้ไข: ส่ง object 'booking' กลับไปตรงๆ 
-    // เพื่อให้หน้าบ้านได้รับ id (เช่น result.id) แล้วเปลี่ยนหน้าไป /tickets/[id] ได้ถูกต้อง
     return NextResponse.json(booking, { status: 201 });
 
   } catch (error: any) {
     console.error("Booking Error:", error);
     return NextResponse.json(
       { message: "เกิดข้อผิดพลาด: " + error.message },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

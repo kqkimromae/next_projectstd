@@ -13,30 +13,40 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl!, supabaseKey!);
 
+// ✅ คำนวณ minDate / maxDate ส่วนกลาง
+const getMinDate = () => {
+  return new Date().toISOString().split("T")[0]; // วันนี้
+};
+const getMaxDate = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 3); // 3 วันข้างหน้า
+  return d.toISOString().split("T")[0];
+};
+
 // ============================
 // Mini Calendar Component
 // ============================
 type DaySlotInfo = {
-  fullSlots: string[];   // เวลาที่เต็ม เช่น ["09:00","10:00"]
-  allFull: boolean;      // เต็มทุก slot ไหม
+  fullSlots: string[];
+  allFull: boolean;
 };
 
 function MiniCalendar({
-  value, onChange, min, fieldId, maxCapacity
+  value, onChange, min, max, fieldId, maxCapacity
 }: {
   value: string;
   onChange: (d: string) => void;
   min: string;
+  max: string;
   fieldId: string;
   maxCapacity: number;
 }) {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
-  // เก็บข้อมูล slot ของแต่ละวันในเดือนที่แสดง: { "2025-03-15": { fullSlots: [...], allFull: bool } }
   const [monthSlotData, setMonthSlotData] = useState<Record<string, DaySlotInfo>>({});
 
-  const totalSlots = 14; // 08:00 - 21:00 (14 ช่วง)
+  const totalSlots = 14;
   const monthNames = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
                       "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
   const dayNames = ["อา","จ","อ","พ","พฤ","ศ","ส"];
@@ -59,13 +69,13 @@ function MiniCalendar({
     return `${viewYear}-${mm}-${dd}`;
   };
 
-  // ✅ ดึงข้อมูลทุกวันในเดือนที่แสดงอยู่
   useEffect(() => {
     const fetchMonthData = async () => {
       const newData: Record<string, DaySlotInfo> = {};
       const promises = Array.from({ length: daysInMonth }).map(async (_, i) => {
         const dateStr = toDateStr(i + 1);
-        if (dateStr < min) return; // ข้ามวันที่ผ่านมาแล้ว
+        // ✅ ข้ามวันที่อยู่นอกช่วง min-max
+        if (dateStr < min || dateStr > max) return;
         try {
           const res = await fetch(`/api/fields/${fieldId}/booked-slots?date=${dateStr}`);
           const slots: { startTime: string; totalPlayers: number }[] = await res.json();
@@ -82,14 +92,23 @@ function MiniCalendar({
       setMonthSlotData(newData);
     };
     fetchMonthData();
-  }, [viewYear, viewMonth, fieldId, maxCapacity]);
+  }, [viewYear, viewMonth, fieldId, maxCapacity, min, max]);
 
-  const isDisabled = (day: number) => toDateStr(day) < min;
+  // ✅ disabled ถ้าอยู่นอกช่วง min-max
+  const isDisabled = (day: number) => {
+    const d = toDateStr(day);
+    return d < min || d > max;
+  };
   const isSelected = (day: number) => toDateStr(day) === value;
   const isToday = (day: number) => toDateStr(day) === today.toISOString().split("T")[0];
 
   return (
     <div className="bg-white rounded-[1.5rem] border border-zinc-100 p-5 shadow-sm">
+      {/* ✅ แสดงช่วงวันที่จองได้ */}
+      <div className="mb-4 px-3 py-2 bg-blue-50 border border-blue-100 rounded-xl text-xs font-bold text-blue-600 text-center">
+        จองได้ {min} ถึง {max} เท่านั้น
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <button onClick={prevMonth} className="p-2 rounded-xl hover:bg-zinc-100 transition-colors text-zinc-500 font-bold">‹</button>
@@ -128,18 +147,16 @@ function MiniCalendar({
                   ${disabled ? "text-zinc-300 cursor-not-allowed" : ""}
                   ${allFull && !disabled ? "bg-red-500 text-white cursor-not-allowed hover:bg-red-500" : ""}
                   ${selected && !allFull ? "bg-blue-600 text-white shadow-md" : ""}
-                  ${todayMark && !selected && !allFull ? "ring-2 ring-blue-300 text-blue-600" : ""}
+                  ${todayMark && !selected && !allFull && !disabled ? "ring-2 ring-blue-300 text-blue-600" : ""}
                   ${!selected && !disabled && !allFull ? "hover:bg-blue-50 hover:text-blue-600 text-zinc-700" : ""}
                 `}
               >
                 {day}
               </button>
 
-              {/* ✅ จุดแดงใต้วัน + tooltip เวลาที่เต็ม (แต่ไม่ allFull) */}
               {hasFullSlots && !allFull && !disabled && (
                 <div className="relative group mt-0.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-red-500 cursor-default" />
-                  {/* Tooltip แสดงเวลาที่เต็ม */}
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col items-center z-50 pointer-events-none">
                     <div className="bg-zinc-900 text-white text-[10px] font-bold rounded-lg px-2 py-1.5 whitespace-nowrap shadow-xl">
                       <p className="text-red-400 mb-1">เต็มแล้ว:</p>
@@ -190,7 +207,10 @@ export default function FieldBookingPage({ params }: { params: { id: string } })
   const [existingPaidAmount, setExistingPaidAmount] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
 
-  const today = new Date().toISOString().split("T")[0];
+  // ✅ minDate = พรุ่งนี้, maxDate = อีก 3 วัน
+  const minDate = getMinDate();
+  const maxDate = getMaxDate();
+
   const timeSlots = Array.from({ length: 14 }, (_, i) => `${(i + 8).toString().padStart(2, "0")}:00`);
 
   useEffect(() => {
@@ -271,10 +291,15 @@ export default function FieldBookingPage({ params }: { params: { id: string } })
     return slot ? slot.totalPlayers >= maxCapacity : false;
   };
 
+  // ✅ เช็คว่าวันที่เลือกอยู่ในช่วงที่อนุญาตไหม
+  const isDateValid = date >= minDate && date <= maxDate;
+
   const handleBooking = async () => {
     if (!date) return alert("กรุณาเลือกวันที่");
+    if (!isDateValid) return alert(`จองได้เฉพาะ 3 วันข้างหน้าเท่านั้น (${minDate} ถึง ${maxDate})`);
     if (currentReserved + playerCount > maxCapacity) return alert("ขออภัย สนามเต็มแล้วในเวลานี้");
     if (amountToPay > 0 && !slipFile) return alert("กรุณาแนบสลิปโอนเงิน");
+
     setIsUploading(true);
     try {
       let publicUrl = null;
@@ -354,7 +379,6 @@ export default function FieldBookingPage({ params }: { params: { id: string } })
               </div>
 
               <div className="p-8">
-                {/* ราคา */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                   <div className={`p-5 rounded-2xl border ${!session ? "bg-blue-50 border-blue-200" : "bg-white border-zinc-100 opacity-60"}`}>
                     <p className="text-xs font-bold text-blue-600 uppercase mb-1 text-center">ราคาบุคคลทั่วไป</p>
@@ -365,22 +389,27 @@ export default function FieldBookingPage({ params }: { params: { id: string } })
                     <p className="text-2xl font-black text-zinc-900 text-center">฿{field.memberPrice}<span className="text-sm font-normal text-zinc-400 ml-1">/ชม.</span></p>
                   </div>
                 </div>
-
                 <p className="text-zinc-600 leading-relaxed mb-8 border-t pt-8 italic">{field.description}</p>
               </div>
             </div>
 
-            {/* ✅ ปฏิทิน + Grid เวลา (อยู่ใต้รูปสนาม) */}
+            {/* ปฏิทิน + Grid เวลา */}
             <div className="bg-white rounded-[2rem] shadow-sm border border-zinc-100 p-8">
               <h3 className="text-lg font-bold text-zinc-900 flex items-center gap-2 mb-6">
                 <Calendar className="text-blue-600" size={20} />
                 เลือกวันและตรวจสอบที่ว่าง
               </h3>
 
-              {/* ปฏิทิน */}
-              <MiniCalendar value={date} onChange={setDate} min={today} fieldId={params.id} maxCapacity={maxCapacity} />
+              {/* ✅ ส่ง min และ max เข้า MiniCalendar */}
+              <MiniCalendar
+                value={date}
+                onChange={setDate}
+                min={minDate}
+                max={maxDate}
+                fieldId={params.id}
+                maxCapacity={maxCapacity}
+              />
 
-              {/* Grid เวลา — แสดงหลังเลือกวัน */}
               {date && (
                 <div className="mt-6">
                   <h4 className="text-sm font-bold text-zinc-700 flex items-center gap-2 mb-4">
@@ -436,7 +465,6 @@ export default function FieldBookingPage({ params }: { params: { id: string } })
                 </div>
               )}
 
-              {/* placeholder ก่อนเลือกวัน */}
               {!date && (
                 <div className="mt-6 py-10 bg-zinc-50 border-2 border-dashed border-zinc-200 rounded-[1.5rem] text-center text-zinc-400 font-medium text-sm">
                   เลือกวันในปฏิทินด้านบน เพื่อดูสถานะที่ว่างรายชั่วโมง
@@ -445,7 +473,7 @@ export default function FieldBookingPage({ params }: { params: { id: string } })
             </div>
           </div>
 
-          {/* ===== ขวา (form) — เหมือนเดิมทุกอย่าง ===== */}
+          {/* ===== ขวา (form) ===== */}
           <div className="lg:col-span-1">
             <div className="bg-white border border-zinc-200 p-6 rounded-[2rem] shadow-xl shadow-zinc-200/50 sticky top-8">
               <h3 className="text-xl font-bold text-zinc-900 mb-6 flex items-center gap-2">
@@ -456,13 +484,18 @@ export default function FieldBookingPage({ params }: { params: { id: string } })
               <div className="space-y-5">
                 <div>
                   <label className="text-xs font-bold text-zinc-500 uppercase block mb-2">1. เลือกวันที่</label>
+                  {/* ✅ ใส่ min และ max ใน input date ด้วย */}
                   <input
                     type="date"
-                    min={today}
+                    min={minDate}
+                    max={maxDate}
                     value={date}
                     className="w-full p-4 bg-zinc-50 border border-zinc-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold"
                     onChange={(e) => setDate(e.target.value)}
                   />
+                  <p className="text-[10px] text-zinc-400 mt-1.5 font-medium">
+                    จองล่วงหน้าได้สูงสุด 3 วัน ({minDate} – {maxDate})
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -544,7 +577,7 @@ export default function FieldBookingPage({ params }: { params: { id: string } })
 
                   <button
                     onClick={handleBooking}
-                    disabled={isUploading || isSlotFull(startTime) || !date}
+                    disabled={isUploading || isSlotFull(startTime) || !date || !isDateValid}
                     className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-600 disabled:cursor-not-allowed flex justify-center items-center gap-2 transition-all shadow-lg shadow-blue-900/20"
                   >
                     {isUploading ? <Loader2 className="animate-spin" size={20} /> : editId ? "ยืนยันการแก้ไข" : "ยืนยันการจองสนาม"}
